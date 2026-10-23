@@ -65,13 +65,18 @@ try { token = localStorage.getItem('t'); } catch (e) {}
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = (n) => Number(n).toLocaleString('en-US');
+const norm = (v) => { let d = String(v || '').replace(/\D/g, ''); if (/^0\d{9}$/.test(d)) d = '255' + d.slice(1); else if (/^[67]\d{8}$/.test(d)) d = '255' + d; return d; };
+fetch(API + '/health').catch(() => {});
 
 async function api(p, body, method) {
-  const r = await fetch(API + p, {
-    method: method || (body !== undefined ? 'POST' : 'GET'),
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  let r;
+  try {
+    r = await fetch(API + p, {
+      method: method || (body !== undefined ? 'POST' : 'GET'),
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch (e) { throw new Error('Seva inaamka au mtandao una shida. Subiri sekunde 30 kisha ujaribu tena.'); }
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error || 'Hitilafu, jaribu tena');
   return j;
@@ -100,19 +105,38 @@ function authView(mode = 'login') {
   <p class="mut" style="margin:0 0 16px">Inajibu wateja kwa AI, inalike status na inalinda group lako dhidi ya links.</p>
   <div class="card">
     <div class="tabs"><button class="${mode === 'login' ? 'on' : ''}" id="tl">Ingia</button><button class="${mode === 'reg' ? 'on' : ''}" id="tr">Jisajili</button></div>
-    <label for="ph">Namba ya simu (na code ya nchi)</label>
+    <label for="ph">Namba ya simu (mfano 0712345678 au 255712345678)</label>
     <input id="ph" type="tel" inputmode="numeric" placeholder="255712345678">
     <label for="pw">Nenosiri</label>
     <input id="pw" type="password" placeholder="Angalau herufi 6">
     <button class="full" id="go">${mode === 'login' ? 'Ingia' : 'Fungua akaunti'}</button>
+    ${mode === 'login' ? '<p style="text-align:center;margin:14px 0 0"><a href="#" id="fg">Umesahau nenosiri?</a></p>' : ''}
   </div>`;
   $('#tl').onclick = () => authView('login');
   $('#tr').onclick = () => authView('reg');
+  if ($('#fg')) $('#fg').onclick = (e) => { e.preventDefault(); forgotView(); };
   $('#go').onclick = (e) => run(e.target, async () => {
-    const r = await api(mode === 'login' ? '/api/login' : '/api/register', { phone: $('#ph').value, password: $('#pw').value });
+    const r = await api(mode === 'login' ? '/api/login' : '/api/register', { phone: norm($('#ph').value), password: $('#pw').value.trim() });
     token = r.token;
     try { localStorage.setItem('t', token); } catch (x) {}
     await load();
+  });
+}
+
+function forgotView(step = 1, ph = '') {
+  $('#app').innerHTML = `<div class="top"><div class="brand">GS CYBER NEST</div></div>
+  <div class="card"><h2>Rekebisha nenosiri</h2>
+  <p class="mut">Unaweza kurekebisha nenosiri mara 2 tu. Code itatumwa kwenye WhatsApp ya namba yako.</p>
+  <label for="ph">Namba ya simu</label><input id="ph" type="tel" inputmode="numeric" value="${esc(ph)}" placeholder="0712345678">
+  ${step === 2 ? `<label for="cd">Code uliyotumiwa</label><input id="cd" type="tel" inputmode="numeric" maxlength="6">
+  <label for="np">Nenosiri jipya</label><input id="np" type="password" placeholder="Angalau herufi 6">` : ''}
+  <button class="full" id="go">${step === 1 ? 'Tuma code' : 'Hifadhi nenosiri'}</button>
+  <button class="ghost full" id="bk">Rudi</button></div>`;
+  $('#bk').onclick = () => authView();
+  $('#go').onclick = (e) => run(e.target, async () => {
+    const phone = norm($('#ph').value);
+    if (step === 1) { await api('/api/forgot', { phone }); toast('Kama namba ipo, code imetumwa kwenye WhatsApp'); forgotView(2, phone); }
+    else { const r = await api('/api/reset', { phone, code: $('#cd').value, password: $('#np').value }); toast(r.left > 0 ? 'Nenosiri limebadilishwa. Una nafasi 1 zaidi.' : 'Nenosiri limebadilishwa. Hii ilikuwa nafasi ya mwisho.'); authView(); }
   });
 }
 
@@ -157,6 +181,20 @@ function dash(code) {
     <p class="mut">Ili bot ifute links, ifanye admin kwenye group husika.</p>
   </div>
 
+  <div class="card">
+    <h2>Huduma za ziada</h2>
+    <p class="mut" style="margin:0 0 6px">Washa unazotaka tu. Amri zinaanza na nukta, mfano <b>.menu</b></p>
+    ${[['view_status', 'Tazama status tu (bila like)'], ['anti_delete', 'Nitumie jumbe zilizofutwa kwenye chat yangu'], ['calc', 'Kokotoa (.hesabu 25*4)'], ['currency', 'Badili sarafu (.badili 100 usd tzs)'], ['qr', 'Tengeneza QR code (.qr maandishi)'], ['search', 'Tafuta mtandaoni (.tafuta swali)'], ['receipt', 'Toa risiti, kwa ajili yako tu (.risiti Mteja | Bidhaa 15000)']]
+      .map(([k, t]) => `<div class="sw row"><label for="f_${k}" style="margin:0;color:var(--ink)">${t}</label><input type="checkbox" id="f_${k}" ${(b.features || {})[k] ? 'checked' : ''}></div>`).join('')}
+    <label for="lg">Lugha ya majibu</label>
+    <select id="lg">${[['auto', 'Kiotomatiki (lugha ya mteja)'], ['Kiswahili', 'Kiswahili'], ['English', 'English'], ['Francais', 'Fran\u00e7ais'], ['Arabic', '\u0627\u0644\u0639\u0631\u0628\u064a\u0629'], ['Espanol', 'Espa\u00f1ol'], ['Portugues', 'Portugu\u00eas']].map(([v, t]) => `<option value="${v}" ${((b.features || {}).lang || 'auto') === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
+    <label for="bz">Jina la biashara (linaonekana kwenye risiti)</label>
+    <input id="bz" type="text" maxlength="60" value="${esc((b.features || {}).business)}">
+    <label for="em">Emoji za kulike status (acha nafasi kati ya kila moja)</label>
+    <input id="em" type="text" maxlength="20" value="${esc((b.features || {}).status_emoji || '\u2764\ufe0f')}">
+    <p class="mut">Jumbe zilizofutwa zinatumwa kwenye chat yako mwenyewe tu.</p>
+  </div>
+
   <div class="card" id="payc">
     <h2>Lipia kifurushi</h2>
     ${pkgs.map((p, i) => `<label class="pk"><input type="radio" name="pk" value="${p.id}" ${i === 0 ? 'checked' : ''}><span>${esc(p.name)}<br><span class="mut">Siku ${p.days}</span></span><b>TSh ${fmt(p.price_tsh)}</b></label>`).join('')}
@@ -173,7 +211,7 @@ function dash(code) {
   if ($('#adm')) $('#adm').onclick = adminView;
   if ($('#dc')) $('#dc').onclick = (e) => run(e.target, async () => { await api('/api/bot/disconnect', {}); await load(); toast('Imeondolewa'); });
   if ($('#pr')) $('#pr').onclick = (e) => run(e.target, async () => {
-    const r = await api('/api/bot/pair', { phone: $('#wn').value });
+    const r = await api('/api/bot/pair', { phone: norm($('#wn').value) });
     me.bot.status = 'pending_pairing';
     dash(r.code);
     poll = setInterval(async () => {
@@ -183,6 +221,8 @@ function dash(code) {
   $('#sv').onclick = (e) => run(e.target, async () => {
     const body = { ai_prompt: $('#ai').value };
     ['auto_reply', 'like_status', 'always_online', 'always_typing', 'anti_link'].forEach((k) => (body[k] = $('#s_' + k).checked));
+    body.features = { lang: $('#lg').value, business: $('#bz').value, status_emoji: $('#em').value };
+    ['view_status', 'anti_delete', 'calc', 'currency', 'qr', 'search', 'receipt'].forEach((k) => (body.features[k] = $('#f_' + k).checked));
     await api('/api/bot/settings', body);
     Object.assign(me.bot, body);
     toast('Imehifadhiwa');
@@ -205,24 +245,34 @@ async function histLoad() {
 }
 
 /* ---------- Admin ---------- */
-async function adminView() {
+async function adminView(tab = 'pending') {
   clearInterval(poll);
   $('#app').className = 'wrap wide';
   $('#app').innerHTML = `<div class="top"><div class="brand">Admin</div><button class="ghost" id="bk">Rudi kwenye akaunti</button></div>
   <div class="stats" id="st"></div>
-  <div class="card"><h2>Malipo yanayosubiri</h2><div class="list" id="pp">Inapakia...</div></div>
-  <div class="card"><h2>Watumiaji</h2><div class="list" id="us">Inapakia...</div></div>`;
+  <div class="card"><div class="tabs">${[['pending', 'Zinasubiri'], ['approved', 'Zilizothibitishwa'], ['rejected', 'Zilizokataliwa']].map(([t, n]) => `<button data-t="${t}" class="${tab === t ? 'on' : ''}">${n}</button>`).join('')}</div><div class="list" id="pp">Inapakia...</div></div>
+  <div class="card"><h2>Watumiaji</h2><input id="q" type="text" placeholder="Tafuta kwa namba..." inputmode="numeric"><div class="list" id="us">Inapakia...</div></div>`;
   $('#bk').onclick = load;
+  let users = [];
+  const dl = (d) => Math.ceil((new Date(d) - Date.now()) / 864e5);
+  const drawUsers = () => {
+    const q = $('#q').value.replace(/\D/g, '');
+    $('#us').innerHTML = users.filter((u) => u.phone.includes(q)).map((u) => { const b = (Array.isArray(u.bots) ? u.bots[0] : u.bots) || {}; const d = b.expires_at ? dl(b.expires_at) : 0; return `<div><b>+${esc(u.phone)}</b> ${u.banned ? '<span class="pill off">Amezuiwa</span>' : ''}${u.is_admin ? ' <span class="pill wait">Admin</span>' : ''}<br>
+      <span class="mut">${esc(b.status || '-')}${b.wa_number ? ' (+' + esc(b.wa_number) + ')' : ''} | ${d > 0 ? 'siku ' + d : 'haijalipiwa'} | kurekebisha nenosiri: ${u.reset_count || 0}/2</span>
+      <div class="acts"><button class="ghost" data-a="extend" data-id="${u.id}">Ongeza siku</button><button class="ghost" data-a="reset" data-id="${u.id}">Weka upya nenosiri</button><button class="ghost" data-a="ban" data-id="${u.id}" data-b="${u.banned ? 0 : 1}">${u.banned ? 'Ruhusu' : 'Zuia'}</button></div></div>`; }).join('') || '<span class="mut">Hakuna.</span>';
+  };
   try {
-    const [s, pay, us] = await Promise.all([api('/api/admin/stats'), api('/api/admin/payments?status=pending'), api('/api/admin/users')]);
-    $('#st').innerHTML = [['Watumiaji', s.users], ['Zimeunganishwa', s.linked], ['Zinazowaka', s.active], ['Zinasubiri', s.pending_payments]].map(([t, n]) => `<div><b>${n}</b><span class="mut">${t}</span></div>`).join('');
-    $('#pp').innerHTML = pay.length ? pay.map((p) => `<div><b>+${esc(p.users?.phone)}</b> - ${esc(p.packages?.name)} (siku ${p.packages?.days}), TSh ${fmt(p.amount_tsh)}<br><span class="mut">ID: ${esc(p.transaction_id)}</span>
-      <div class="acts"><button data-a="approve" data-id="${p.id}">Thibitisha</button><button class="red" data-a="reject" data-id="${p.id}">Kataa</button></div></div>`).join('') : '<span class="mut">Hakuna malipo yanayosubiri.</span>';
-    $('#us').innerHTML = us.map((u) => { const b = u.bots?.[0] || u.bots || {}; return `<div><b>+${esc(u.phone)}</b> ${u.banned ? '<span class="pill off">Amezuiwa</span>' : ''}${u.is_admin ? ' <span class="pill wait">Admin</span>' : ''}<br>
-      <span class="mut">${esc(b.status || '-')}${b.expires_at ? ', inaisha ' + new Date(b.expires_at).toLocaleDateString() : ''}</span>
-      <div class="acts"><button class="ghost" data-a="extend" data-id="${u.id}">Ongeza siku</button><button class="ghost" data-a="ban" data-id="${u.id}" data-b="${u.banned ? 0 : 1}">${u.banned ? 'Ruhusu' : 'Zuia'}</button></div></div>`; }).join('');
+    const [s, pay, us] = await Promise.all([api('/api/admin/stats'), api('/api/admin/payments?status=' + tab), api('/api/admin/users')]);
+    users = us;
+    $('#st').innerHTML = [['Watumiaji', s.users], ['Zimeunganishwa sasa', s.live], ['Zimelipiwa', s.active], ['Mapato mwezi (TSh)', fmt(s.revenue_month)]].map(([t, n]) => `<div><b>${n}</b><span class="mut">${t}</span></div>`).join('');
+    $('#pp').innerHTML = pay.length ? pay.map((p) => `<div><b>+${esc(p.users?.phone)}</b> - ${esc(p.packages?.name)} (siku ${p.packages?.days}), TSh ${fmt(p.amount_tsh)}<br><span class="mut">ID: ${esc(p.transaction_id)} | ${new Date(p.created_at).toLocaleString()}</span>
+      ${tab === 'pending' ? `<div class="acts"><button data-a="approve" data-id="${p.id}">Thibitisha</button><button class="red" data-a="reject" data-id="${p.id}">Kataa</button></div>` : ''}</div>`).join('') : '<span class="mut">Hakuna.</span>';
+    drawUsers();
+    $('#q').oninput = drawUsers;
   } catch (e) { toast(e.message, true); }
   $('#app').onclick = (e) => {
+    const t = e.target.closest('button[data-t]');
+    if (t) return adminView(t.dataset.t);
     const b = e.target.closest('button[data-a]'); if (!b) return;
     const { a, id } = b.dataset;
     run(b, async () => {
@@ -230,12 +280,13 @@ async function adminView() {
       if (a === 'reject') { if (!confirm('Kataa malipo haya?')) return; await api(`/api/admin/payments/${id}/reject`, {}); }
       if (a === 'extend') { const d = prompt('Siku ngapi za kuongeza?', '7'); if (!d) return; await api(`/api/admin/users/${id}/extend`, { days: Number(d) }); }
       if (a === 'ban') await api(`/api/admin/users/${id}/ban`, { banned: b.dataset.b === '1' });
-      toast('Imekamilika'); adminView();
+      if (a === 'reset') { if (!confirm('Weka nenosiri jipya la muda kwa mtumiaji huyu?')) return; const r = await api(`/api/admin/users/${id}/reset`, {}); alert('Nenosiri jipya la muda: ' + r.password + '\nMpe mtumiaji, kisha abadilishe.'); }
+      toast('Imekamilika'); adminView(tab);
     });
   };
 }
 
-token ? load() : authView();
+token ? load() : authView(location.hash === '#jisajili' ? 'reg' : 'login');
 </script>
 </body>
 </html>
